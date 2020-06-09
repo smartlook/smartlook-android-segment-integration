@@ -48,20 +48,13 @@ def pomConfig = {
     }
 }
 
-tasks.whenTaskAdded { task ->
-    if (task.name == 'assembleProductionRelease') {
-        task.finalizedBy artifactoryPublish
-    }
-}
-
 publishing {
     publications {
         production(MavenPublication) {
-            def filename = "smartlook-android-segment-integration-${android.defaultConfig.versionName}"
             groupId 'com.smartlook.sdk.integration.segment'
             artifactId = "smartlook-android-segment-integration"
             version = "${android.defaultConfig.versionName}"
-            artifact file("$buildDir/outputs/aar/${filename}.aar")
+            artifact file("$buildDir/outputs/aar/segment-integration-release.aar")
             pom.withXml {
                 def root = asNode()
                 def dependenciesNode = root.appendNode('dependencies')
@@ -91,6 +84,8 @@ publishing {
         }
     }
 }
+
+assemble.finalizedBy(artifactoryPublish)
 
 artifactory {
     contextUrl = "${artifactory_context_url}"

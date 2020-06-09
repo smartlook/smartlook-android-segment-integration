@@ -3,6 +3,7 @@ package com.smartlook.integration.segment;
 import com.segment.analytics.Analytics;
 import com.segment.analytics.Properties;
 import com.segment.analytics.ValueMap;
+import com.segment.analytics.integrations.AliasPayload;
 import com.segment.analytics.integrations.IdentifyPayload;
 import com.segment.analytics.integrations.Integration;
 import com.segment.analytics.integrations.ScreenPayload;
@@ -11,6 +12,7 @@ import com.smartlook.sdk.smartlook.Smartlook;
 import com.smartlook.sdk.smartlook.analytics.video.model.annotation.ViewState;
 
 import org.jetbrains.annotations.NotNull;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 public class SmartlookIntegration extends Integration<Void> {
@@ -19,18 +21,17 @@ public class SmartlookIntegration extends Integration<Void> {
 
     // Integration settings
     private static final String SMARTLOOK_API_KEY = "api_key";
-    private static final String SMARTLOOK_FPS = "fps";
-    private static final int SMARTLOOK_DEFAULT_FPS = 2;
 
     public static final Factory FACTORY = new Factory() {
 
         @Override
         public Integration<?> create(ValueMap settings, Analytics analytics) {
 
-            Smartlook.SetupOptionsBuilder smartlookBuilder = parseOutIntegrationSettings(settings);
-
-            if (smartlookBuilder != null) {
-                return new SmartlookIntegration(smartlookBuilder);
+            if (Smartlook.isRecording()) {
+                return new SmartlookIntegration();
+            } else if (settings.containsKey(SMARTLOOK_API_KEY)) {
+                Smartlook.setup(settings.getString(SMARTLOOK_API_KEY));
+                return new SmartlookIntegration();
             }
 
             return null;
@@ -43,45 +44,21 @@ public class SmartlookIntegration extends Integration<Void> {
         }
     };
 
-    private static Smartlook.SetupOptionsBuilder parseOutIntegrationSettings(ValueMap settings) {
-
-        Smartlook.SetupOptionsBuilder builder;
-
-        if (settings.containsKey(SMARTLOOK_API_KEY)) {
-            builder = new Smartlook.SetupOptionsBuilder(settings.getString(SMARTLOOK_API_KEY));
-        } else {
-            return null;
-        }
-
-        if (settings.containsKey(SMARTLOOK_FPS)) {
-            builder.setFps(settings.getInt(SMARTLOOK_FPS, SMARTLOOK_DEFAULT_FPS));
-        }
-
-        //todo we can parse out other params too
-
-        return builder;
-    }
-
-    private SmartlookIntegration(Smartlook.SetupOptionsBuilder smartlookBuilder) {
-        Smartlook.setupAndStartRecording(smartlookBuilder.build());
-    }
-
     @Override
     public void identify(IdentifyPayload identify) {
         String userId = identify.userId();
+        String anonymousId = identify.anonymousId();
         JSONObject properties = identify.traits().toJsonObject();
 
-        if (!isValidUserId(userId) && properties == null) {
-            return;
-        }
+        smartlookIdentify(userId, anonymousId, properties);
+    }
 
-        if (isValidUserId(userId) && properties == null) {
-            Smartlook.setUserIdentifier(userId);
-        }
+    @Override
+    public void alias(AliasPayload alias) {
+        String userId = alias.userId();
+        String anonymousId = alias.anonymousId();
 
-        if (!isValidUserId(userId) && properties != null) {
-            Smartlook.setUserIdentifier("undefined", properties);
-        }
+        smartlookIdentify(userId, anonymousId, null);
     }
 
 
@@ -90,11 +67,8 @@ public class SmartlookIntegration extends Integration<Void> {
         String eventName = track.event();
         Properties properties = track.properties();
 
-        if (properties.isEmpty()) {
-            Smartlook.trackCustomEvent(eventName);
-        } else {
-            Smartlook.trackCustomEvent(eventName, properties.toJsonObject());
-        }
+        properties.put("sl-origin", "segment");
+        Smartlook.trackCustomEvent(eventName, properties.toJsonObject());
     }
 
     @Override
@@ -109,7 +83,34 @@ public class SmartlookIntegration extends Integration<Void> {
         return null;
     }
 
-    private boolean isValidUserId(String userId) {
-        return !(userId == null || userId.isEmpty());
+    private void smartlookIdentify(String userId, String anonymousId, JSONObject properties) {
+        String identifier = isValidId(userId) ? userId : isValidId(anonymousId) ? anonymousId : null;
+
+        if (isValidId(userId) && isValidId(anonymousId)) {
+            if (properties == null) {
+                properties = new JSONObject();
+            }
+
+            try {
+                properties.put("anonymous_id", anonymousId);
+            } catch (JSONException ignored) {
+            }
+        }
+
+        if (identifier == null && properties != null) {
+            Smartlook.setUserIdentifier("unknown", properties);
+        }
+
+        if (identifier != null) {
+            if (properties == null) {
+                Smartlook.setUserIdentifier(identifier);
+            } else {
+                Smartlook.setUserIdentifier(identifier, properties);
+            }
+        }
+    }
+
+    private boolean isValidId(String id) {
+        return !(id == null || id.isEmpty());
     }
 }

@@ -1,4 +1,6 @@
 apply plugin: 'com.android.library'
+apply plugin: "com.jfrog.artifactory"
+apply plugin: 'maven-publish'
 
 android {
     lintOptions {
@@ -29,4 +31,88 @@ android {
 dependencies {
     compileOnly 'com.segment.analytics.android:analytics:4.7.0'
     implementation 'com.smartlook.recording:app:1.4.2-native'
+}
+
+def pomConfig = {
+    licenses {
+        license {
+            name 'The Apache Software License, Version 2.0'
+            url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+            distribution 'repo'
+        }
+    }
+
+    scm {
+        connection 'https://github.com/smartlook/smartlook-android-segment-integration.git'
+        url 'https://github.com/smartlook/smartlook-android-segment-integration'
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name == 'assembleProductionRelease') {
+        task.finalizedBy artifactoryPublish
+    }
+}
+
+publishing {
+    publications {
+        production(MavenPublication) {
+            def filename = "smartlook-android-segment-integration-${android.defaultConfig.versionName}"
+            groupId 'com.smartlook.sdk.integration.segment'
+            artifactId = "smartlook-android-segment-integration"
+            version = "${android.defaultConfig.versionName}"
+            artifact file("$buildDir/outputs/aar/${filename}.aar")
+            pom.withXml {
+                def root = asNode()
+                def dependenciesNode = root.appendNode('dependencies')
+                def configurationNames = ["implementation", "api", "runtimeOnly"]
+                configurationNames.each { confName ->
+                    configurations[confName].allDependencies.each {
+                        def dependencyNode = dependenciesNode.appendNode('dependency')
+                        dependencyNode.appendNode('groupId', it.group)
+                        dependencyNode.appendNode('artifactId', it.name)
+                        dependencyNode.appendNode('version', it.version)
+                        if (it.excludeRules.size() > 0) {
+                            def exclusionsNode = dependencyNode.appendNode('exclusions')
+                            it.excludeRules.each { rule ->
+                                def exclusionNode = exclusionsNode.appendNode('exclusion')
+                                exclusionNode.appendNode('groupId', rule.group)
+                                exclusionNode.appendNode('artifactId', rule.module)
+                            }
+                        }
+                    }
+                }
+
+                root.appendNode('description', "Official Smartlook integration for Segment.")
+                root.appendNode('name', project.name)
+                root.appendNode('url', 'https://smartlook.com')
+                root.children().last() + pomConfig
+            }
+        }
+    }
+}
+
+artifactory {
+    contextUrl = "${artifactory_context_url}"
+    publish {
+        repository {
+            repoKey = "${artifactory_repo_key}"
+            username = "${artifactory_username}"
+            password = "${artifactory_password}"
+            maven = true
+        }
+        defaults {
+            publications('production')
+            publishArtifacts = true
+            publishPom = true
+        }
+    }
+    resolve {
+        repository {
+            repoKey = "${artifactory_repo_key}"
+            username = "${artifactory_username}"
+            password = "${artifactory_password}"
+            maven = true
+        }
+    }
 }
